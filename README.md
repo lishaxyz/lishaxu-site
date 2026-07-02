@@ -46,24 +46,19 @@ for the planner.)
 Netlify/Vercel also work: point them at this folder, no build command,
 publish directory = this folder, then attach the domain.
 
-## Analytics (Plausible) — ready to switch on
+## Analytics (Plausible) — live
 
-Each page has a commented-out Plausible `<script>` tag in `<head>`.
-To enable:
-
-1. Create the site `lishaxu.com` at plausible.io.
-2. Uncomment the script tag in `index.html`, `artwork/index.html`,
-   `about/index.html`, and `planner/index.html`.
-
-The script variant used (`script.tagged-events.outbound-links.js`) gives you:
+Each page's `<head>` carries the account snippet for the plausible.io site
+`lishaxu.com` (the `pa-….js` script). It provides:
 
 - Page views per page (traffic).
 - **CTR on buttons**: every Purchase / Inquire / Open-the-Planner button is
-  already tagged with `plausible-event-name=...` classes (with a
-  `plausible-event-piece` property naming the artwork), so goals named
-  `Purchase`, `Inquire`, and `Open Planner` will appear under Goals once you
-  add them in the Plausible dashboard.
-- Outbound link clicks (e.g. Etsy Buy links inside the planner) automatically.
+  tagged with `plausible-event-name=...` classes (with a
+  `plausible-event-piece` property naming the artwork). Add goals named
+  `Purchase`, `Inquire`, and `Open Planner` in the Plausible dashboard to see
+  conversion rates; add the custom property `piece` for per-artwork breakdowns.
+- Outbound link clicks (e.g. Etsy Buy links inside the planner) — enable
+  "Outbound links" in the site's Plausible installation settings.
 
 ## Affiliate links / shop catalog
 
