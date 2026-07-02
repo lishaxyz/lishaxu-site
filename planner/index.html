@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- maximum-scale=1 stops iOS Safari's auto-zoom when focusing inputs (the app
+     is a fixed-viewport tool with its own canvas pinch-zoom); iOS still allows
+     manual accessibility pinch-zoom regardless of this setting. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Gallery Wall Planner — Lisha Xu</title>
 <meta name="description" content="Free tool: upload a photo of your wall and arrange artwork to scale before you buy or hang anything.">
 <link rel="icon" type="image/svg+xml" href="../favicon.svg">
@@ -21,6 +24,12 @@ html,body{margin:0;height:100%;overscroll-behavior:none;background:#e9ecf1}
 input,button,textarea{font-family:inherit}
 ::-webkit-scrollbar{height:8px;width:8px}
 ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:99px}
+/* Mobile browsers auto-zoom the page when a focused input's font is under
+   16px, cutting off the tool. Overrides the app's inline 14px on touch
+   devices only; desktop keeps the designed size. */
+@media (pointer: coarse){
+  input[inputmode], input[type="text"], textarea{font-size:16px !important}
+}
 </style>
 <!-- Analytics (Plausible) — to enable: create the site at plausible.io, then uncomment.
      The outbound-links extension automatically tracks Buy/Etsy clicks inside the planner.

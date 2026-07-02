@@ -162,6 +162,7 @@
           confirmReset: false, calibrating: false, wallUrl: null,
           canvasW: this.state.canvasW, canvasH: this.state.canvasH
         });
+        if (st.mode === 'perspective' && st.panelView === 'wall') st.calibrating = true;
         if (saved.hasWall) { const b = await this.idbGet('wall'); if (b) st.wallUrl = URL.createObjectURL(b); }
         for (const p of st.pieces) { if (p.hasImage) { const b = await this.idbGet('piece_' + p.id); if (b) { p.url = URL.createObjectURL(b); } else if (p.srcUrl) { p.url = p.srcUrl; } else { p.url = null; p.hasImage = false; } } }
         this.setState(st, () => { st.wallUrl ? this.loadWallNat(st.wallUrl) : this.useDefaultWall(true); });
@@ -685,7 +686,9 @@
         shopItems,
         selectPiecesTab: () => this.setState({ panelView: 'list', selectedId: null, calibrating: false }),
         selectShopTab: () => this.setState({ panelView: 'shop', selectedId: null, calibrating: false }),
-        selectWallTab: () => this.setState({ panelView: 'wall', selectedId: null }),
+        // Entering the Wall tab in perspective mode always shows the calibration
+        // dots — otherwise the perspective controls appear with nothing to drag.
+        selectWallTab: () => this.setState(s => ({ panelView: 'wall', selectedId: null, calibrating: s.mode === 'perspective' })),
         gotoList: () => this.setState({ panelView: 'list' }),
         addPiece: () => this.addPiece(),
         thumbs,
