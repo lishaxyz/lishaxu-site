@@ -1,0 +1,379 @@
+/* lishaxu.com — shared site styles
+   Design tokens (from design handoff):
+   background #ffffff · text #1a2230 · body copy #3c4556 · secondary #5f6a7c
+   muted #97a1b1 · accent #2f5e8c · slate band #e9ecf1 · border #d9e0ea
+   underline accent #c3ccd8 */
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; background: #ffffff; }
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  color: #1a2230;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 14px;
+}
+
+/* ---------- header ---------- */
+
+.site-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 36px clamp(20px, 5vw, 48px) 0;
+}
+
+.wordmark {
+  font-family: Lora, Georgia, serif;
+  font-size: clamp(24px, 4vw, 30px);
+  font-weight: 500;
+  letter-spacing: .02em;
+  color: #1a2230;
+  text-decoration: none;
+}
+
+.site-nav {
+  display: flex;
+  gap: clamp(22px, 4vw, 34px);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.site-nav a {
+  text-decoration: none;
+  padding-bottom: 3px;
+  letter-spacing: .14em;
+  color: #5f6a7c;
+}
+
+.site-nav a[aria-current="page"] {
+  color: #1a2230;
+  border-bottom: 1px solid #1a2230;
+}
+
+/* ---------- shared content column ---------- */
+
+.content {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  flex: 1;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn-purchase {
+  background: #2f5e8c;
+  color: #ffffff;
+  padding: 7px 12px;
+}
+
+.btn-inquire {
+  border: 1px solid #1a2230;
+  color: #1a2230;
+  padding: 6px 12px;
+}
+
+.btn-purchase:hover { background: #2b5680; }
+.btn-inquire:hover { background: rgba(26, 34, 48, .05); }
+
+/* ---------- home: hero ---------- */
+
+.hero {
+  padding: 48px clamp(20px, 5vw, 48px) 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.hero img {
+  width: min(520px, 100%);
+  display: block;
+  box-shadow: 0 24px 60px rgba(26, 34, 48, .18);
+}
+
+.hero-caption { text-align: center; }
+
+.hero-caption .piece-title {
+  font-family: Lora, Georgia, serif;
+  font-size: 17px;
+  margin-bottom: 5px;
+}
+
+.piece-detail {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #5f6a7c;
+}
+
+/* ---------- home: collection ---------- */
+
+.collection { padding: 34px clamp(20px, 5vw, 48px) 24px; }
+
+.collection-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.collection-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #5f6a7c;
+}
+
+.view-all {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2f5e8c;
+  border-bottom: 1px solid #c3ccd8;
+  padding-bottom: 2px;
+  text-decoration: none;
+}
+
+/* Exactly 4 columns >=900px, otherwise 2 — never 1 or 3 (avoids a 3+1 orphan row). */
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 30px 26px;
+}
+
+@media (min-width: 900px) {
+  .collection-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card-well {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+}
+
+.card-well img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  box-shadow: 0 8px 22px rgba(26, 34, 48, .1);
+}
+
+.card-title {
+  font-family: Lora, Georgia, serif;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.card-title .attribution {
+  font-size: 11px;
+  color: #97a1b1;
+  font-style: italic;
+  font-family: inherit;
+}
+
+.card-detail {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #5f6a7c;
+}
+
+.card-cta { margin-top: auto; }
+
+/* ---------- planner callout band ---------- */
+
+.planner-callout {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  flex-wrap: wrap;
+  padding: 30px clamp(20px, 4vw, 36px);
+  background: #e9ecf1;
+}
+
+.home .planner-callout { margin: 44px clamp(20px, 5vw, 48px) 54px; }
+
+.planner-callout-text {
+  flex: 1 1 320px;
+  min-width: 0;
+  text-align: left;
+}
+
+.planner-callout-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #2f5e8c;
+  margin-bottom: 8px;
+}
+
+.planner-callout-heading {
+  font-family: Lora, Georgia, serif;
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.planner-callout-body {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #5f6a7c;
+}
+
+.btn-planner {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  background: #2f5e8c;
+  color: #ffffff;
+  padding: 13px 22px;
+  text-decoration: none;
+}
+
+.btn-planner:hover { background: #2b5680; }
+
+/* ---------- artwork page ---------- */
+
+.artwork-list {
+  padding: 60px clamp(20px, 5vw, 48px) 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 72px;
+}
+
+.artwork-piece {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  width: 100%;
+}
+
+.artwork-piece img {
+  width: min(520px, 100%);
+  display: block;
+  box-shadow: 0 16px 40px rgba(26, 34, 48, .14);
+}
+
+.artwork-piece .piece-title {
+  font-family: Lora, Georgia, serif;
+  font-size: 18px;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
+.artwork-piece .attribution {
+  font-size: 12px;
+  color: #97a1b1;
+  font-style: italic;
+}
+
+.artwork-piece .btn-inquire { padding: 7px 14px; }
+.artwork-piece .btn-purchase { padding: 8px 14px; }
+
+.artwork-list .planner-callout { width: 100%; }
+
+/* ---------- about page ---------- */
+
+.about {
+  padding: 64px clamp(20px, 5vw, 48px) 56px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 48px;
+  align-items: center;
+  justify-content: center;
+}
+
+.about img {
+  width: min(420px, 100%);
+  display: block;
+  box-shadow: 0 16px 40px rgba(26, 34, 48, .14);
+}
+
+.about-text {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 1 1 300px;
+  max-width: 440px;
+}
+
+.about-heading {
+  font-family: Lora, Georgia, serif;
+  font-size: 28px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.about-text p {
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: #3c4556;
+  margin: 0;
+}
+
+.about-text a {
+  color: #2f5e8c;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid #c3ccd8;
+}
+
+/* ---------- footer ---------- */
+
+.site-footer {
+  border-top: 1px solid #d9e0ea;
+  padding: 22px clamp(20px, 5vw, 48px);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #5f6a7c;
+}
+
+.footer-icons {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+
+.footer-icons a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: #5f6a7c;
+  text-decoration: none;
+}
