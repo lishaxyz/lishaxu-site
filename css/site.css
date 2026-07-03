@@ -103,8 +103,11 @@ body {
   gap: 18px;
 }
 
+/* height:auto keeps the width/height HTML attributes (set for layout-shift
+   prevention) acting as aspect-ratio hints instead of fixed heights. */
 .hero img {
   width: min(520px, 100%);
+  height: auto;
   display: block;
   box-shadow: 0 24px 60px rgba(26, 34, 48, .18);
 }
@@ -179,6 +182,8 @@ body {
 }
 
 .card-well img {
+  width: auto;
+  height: auto;
   max-width: 100%;
   max-height: 100%;
   display: block;
@@ -281,6 +286,7 @@ body {
 
 .artwork-piece img {
   width: min(520px, 100%);
+  height: auto;
   display: block;
   box-shadow: 0 16px 40px rgba(26, 34, 48, .14);
 }
@@ -316,6 +322,7 @@ body {
 
 .about img {
   width: min(420px, 100%);
+  height: auto;
   display: block;
   box-shadow: 0 16px 40px rgba(26, 34, 48, .14);
 }
