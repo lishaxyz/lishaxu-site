@@ -156,21 +156,25 @@ body {
   text-decoration: none;
 }
 
-/* Exactly 4 columns >=900px, otherwise 2 — never 1 or 3 (avoids a 3+1 orphan row). */
+/* Exactly 4 columns >=900px, otherwise 2 — never 1 or 3 (avoids a 3+1 orphan row).
+   minmax(0,1fr) + min-width:0 let columns shrink below the images' intrinsic
+   width — without them Safari lets the 1400px-wide images blow the grid out
+   past the viewport. */
 .collection-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 30px 26px;
 }
 
 @media (min-width: 900px) {
-  .collection-grid { grid-template-columns: repeat(4, 1fr); }
+  .collection-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 .card {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .card-well {
