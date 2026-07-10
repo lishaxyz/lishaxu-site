@@ -1,8 +1,9 @@
 # lishaxu.com
 
-Personal artist website for Lisha Xu, plus the Gallery Wall Planner tool.
-Plain static site — no build step. Built from the Claude Design handoff
-(`../design_handoff_lishaxu_site/`).
+Personal artist website for Lisha Xu, plus two free tools: the Gallery Wall
+Planner and the Colour Mixer. Plain static site — no build step. Built from
+the Claude Design handoffs (`../design_handoff_lishaxu_site/`; the Tools page
+and Colour Mixer from the "Color mixing playground tool" handoff).
 
 ## Structure
 
@@ -10,13 +11,20 @@ Plain static site — no build step. Built from the Claude Design handoff
 index.html            Home
 artwork/index.html    Artwork
 about/index.html      About
+tools/index.html      Tools index (cards linking the two tools)
 planner/              Gallery Wall Planner (React app, no build step)
   index.html
   planner.js          ← the shop catalog lives in seedShop() in this file
-css/site.css          Shared site styles
-site-assets/          Paintings + portrait (webp)
+colourmix/            Colour Mixer (React app, no build step)
+  index.html
+  colourmix.js        UI + state (ported from the design prototype)
+  color-mixing.js     Colour science (Kubelka-Munk mixing, recipe search)
+  paint-data.js       Paint catalogues (oil/acrylic/watercolour) + defaults
+  assets/             Default reference photo (EXIF-stripped webp)
+css/site.css          Shared site styles (incl. tools-page card styles)
+site-assets/          Paintings + portrait + tool preview cards (webp)
 prints/               Print images (site + planner catalog)
-vendor/               React 18.3.1 + htm 3.1.1 (served locally, planner only)
+vendor/               React 18.3.1 + htm 3.1.1 (served locally; planner + colourmix)
 CNAME                 Custom domain for GitHub Pages (lishaxu.com)
 ```
 

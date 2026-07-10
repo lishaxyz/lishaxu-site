@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour Mixer — Lisha Xu</title>
+<meta name="description" content="Free tool: pick a colour from a photo or the colour wheel and get the exact mix from paints you already own — realistic pigment mixing with a % match.">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="canonical" href="https://lishaxu.com/colourmix/">
+<meta property="og:title" content="Colour Mixer — Lisha Xu">
+<meta property="og:description" content="Pick a colour from a photo or the colour wheel and get the exact mix from paints you already own.">
+<meta property="og:url" content="https://lishaxu.com/colourmix/">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#f4eee2}
+a{color:#2b2620}
+a:hover{color:#000}
+input,button{font-family:inherit}
+@keyframes pm-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+input[type="range"].pm-slider{-webkit-appearance:none;appearance:none;height:26px;border-radius:3px;outline:none;cursor:pointer}
+input[type="range"].pm-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:32px;margin-top:-3px;border-radius:4px;background:#fffdf7;box-shadow:0 1px 3px rgba(43,38,32,.4);border:1px solid #d9d0bd}
+input[type="range"].pm-slider::-moz-range-thumb{width:14px;height:32px;border-radius:4px;background:#fffdf7;box-shadow:0 1px 3px rgba(43,38,32,.4);border:1px solid #d9d0bd}
+/* Mobile browsers auto-zoom the page when a focused input's font is under
+   16px; override the designed 12.5–13px sizes on touch devices only. */
+@media (pointer: coarse){
+  input[type="text"], input:not([type]){font-size:16px !important}
+}
+</style>
+<!-- Privacy-friendly analytics by Plausible. -->
+<script async src="https://plausible.io/js/pa-HvV7BJ1SXZPFdB6k0vsl2.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script src="../vendor/react.production.min.js"></script>
+<script src="../vendor/react-dom.production.min.js"></script>
+<script src="../vendor/htm.umd.js"></script>
+<script type="module" src="colourmix.js"></script>
+</body>
+</html>

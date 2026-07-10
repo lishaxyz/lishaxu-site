@@ -360,6 +360,73 @@ body {
   border-bottom: 1px solid #c3ccd8;
 }
 
+/* ---------- tools page ---------- */
+
+.tools-intro {
+  padding: 56px clamp(20px, 5vw, 48px) 0;
+  text-align: center;
+}
+
+.tools-intro p {
+  max-width: 640px;
+  margin: 0 auto;
+  font-size: 16px;
+  line-height: 1.75;
+  color: #3c4556;
+  text-wrap: pretty;
+}
+
+.tools-grid {
+  padding: 44px clamp(20px, 5vw, 48px) 64px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 48px 40px;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tool-card > a { display: block; }
+
+.tool-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  object-position: center top;
+  border: 1px solid #d9e0ea;
+}
+
+.tool-title {
+  font-family: Lora, Georgia, serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: #1a2230;
+  margin: 18px 0 6px;
+}
+
+.tool-desc {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #3c4556;
+  margin: 0 0 6px;
+  text-wrap: pretty;
+}
+
+.tool-meta {
+  font-size: 12.5px;
+  color: #5f6a7c;
+  margin: 0 0 18px;
+}
+
+.tool-cta { margin-top: auto; }
+
+.tool-cta .btn-planner { display: inline-block; }
+
 /* ---------- footer ---------- */
 
 .site-footer {
