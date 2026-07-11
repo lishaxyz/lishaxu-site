@@ -268,6 +268,9 @@ const HUE_NAMES = [
 
 export function nameColor(hex) {
   const { h, s, l } = rgbToHsl(hexToRgb(hex));
+  // Very dark colours read as black to the eye even when their hue-saturation
+  // is technically nonzero (e.g. #1a1716) — don't call them "Deep Orange".
+  if (l < 0.13 && s < 0.5) return 'Near Black';
   if (s < 0.08) {
     if (l > 0.85) return 'Off-White';
     if (l < 0.15) return 'Near Black';

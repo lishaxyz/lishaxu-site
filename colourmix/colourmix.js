@@ -13,6 +13,8 @@ import * as paintData from './paint-data.js';
 const DEFAULT_MEDIUM = 'oil';
 const MATCH_THRESHOLD = 99; // % below which buy suggestions appear
 const MIX_FN = mixLib.kmMix; // realistic Kubelka-Munk mixing
+const DEFAULT_PHOTO = 'assets/painting.webp';
+const UPLOAD_MAX_SIDE = 1600; // uploads are downscaled so they fit localStorage
 
 /* h() wraps React.createElement and converts string style attributes
    (kept verbatim from the design template) into React style objects. */
@@ -39,8 +41,8 @@ class ColourMixer extends React.Component {
   state = {
     ready: false,
     medium: DEFAULT_MEDIUM,
-    photoSrc: 'assets/painting.webp',
-    recentPhotos: ['assets/painting.webp'],
+    photoSrc: DEFAULT_PHOTO,
+    recentPhotos: [DEFAULT_PHOTO],
     source: 'photo',
     targetHex: '#6F79BE',
     hasPick: false,
@@ -62,6 +64,7 @@ class ColourMixer extends React.Component {
     pasteCodeValue: '',
     viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
     wheelDragging: false,
+    confirmClear: false,
     toast: null
   };
 
@@ -69,23 +72,47 @@ class ColourMixer extends React.Component {
   data = paintData;
 
   componentDidMount() {
-    let savedInv = null, savedCustom = [], savedShopping = [];
+    let savedInv = null, savedCustom = [], savedShopping = [], savedSess = null;
     try { savedInv = JSON.parse(localStorage.getItem('paintmixer:inventory') || 'null'); } catch (e) {}
     try { savedCustom = JSON.parse(localStorage.getItem('paintmixer:custom') || '[]'); } catch (e) {}
     try { savedShopping = JSON.parse(localStorage.getItem('paintmixer:shopping') || '[]'); } catch (e) {}
-    this.setState({
+    try { savedSess = JSON.parse(localStorage.getItem('paintmixer:session') || 'null'); } catch (e) {}
+    const next = {
       inventory: savedInv || JSON.parse(JSON.stringify(this.data.DEFAULT_INVENTORY)),
       customPigments: savedCustom || [],
       shoppingList: savedShopping || [],
       ready: true
-    });
+    };
+    if (savedSess && typeof savedSess === 'object') {
+      if (this.data.MEDIUM_LABELS[savedSess.medium]) next.medium = savedSess.medium;
+      if (savedSess.source === 'photo' || savedSess.source === 'wheel') next.source = savedSess.source;
+      if (typeof savedSess.targetHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(savedSess.targetHex)) {
+        next.targetHex = savedSess.targetHex;
+        this._restoredTarget = true; // don't let dab extraction overwrite it
+      }
+      if (typeof savedSess.hasPick === 'boolean') next.hasPick = savedSess.hasPick;
+      if (savedSess.pickPct && isFinite(savedSess.pickPct.x)) next.pickPct = savedSess.pickPct;
+      if (isFinite(savedSess.wheelHue)) next.wheelHue = savedSess.wheelHue;
+      if (isFinite(savedSess.wheelSat)) next.wheelSat = savedSess.wheelSat;
+      if (isFinite(savedSess.wheelLight)) next.wheelLight = savedSess.wheelLight;
+      if (typeof savedSess.photoSrc === 'string' && savedSess.photoSrc) next.photoSrc = savedSess.photoSrc;
+      if (Array.isArray(savedSess.recentPhotos) && savedSess.recentPhotos.length) next.recentPhotos = savedSess.recentPhotos;
+    }
+    this.setState(next, () => { this._sessionLoaded = true; });
     this.maybeComputeDabs();
     this.onResize = () => this.setState({ viewportWidth: window.innerWidth });
     window.addEventListener('resize', this.onResize);
   }
 
+  componentDidUpdate() {
+    this.persistSession();
+  }
+
   componentWillUnmount() {
     window.removeEventListener('resize', this.onResize);
+    clearTimeout(this._sessTimer);
+    clearTimeout(this._toastTimer);
+    clearTimeout(this._clearTimer);
   }
 
   persist() {
@@ -94,6 +121,32 @@ class ColourMixer extends React.Component {
       localStorage.setItem('paintmixer:custom', JSON.stringify(this.state.customPigments));
       localStorage.setItem('paintmixer:shopping', JSON.stringify(this.state.shoppingList));
     } catch (e) {}
+  }
+
+  // Debounced snapshot of the working state (medium, source, target, photos)
+  // so a refresh or a fresh visit resumes where the user left off. Uploaded
+  // photos are downscaled JPEG data URLs; if localStorage still overflows,
+  // progressively drop the recents, then the photo itself.
+  persistSession() {
+    if (!this._sessionLoaded) return;
+    clearTimeout(this._sessTimer);
+    this._sessTimer = setTimeout(() => {
+      const s = this.state;
+      const sess = {
+        medium: s.medium, source: s.source, targetHex: s.targetHex,
+        hasPick: s.hasPick, pickPct: s.pickPct,
+        wheelHue: s.wheelHue, wheelSat: s.wheelSat, wheelLight: s.wheelLight,
+        photoSrc: s.photoSrc, recentPhotos: s.recentPhotos
+      };
+      const attempts = [
+        sess,
+        { ...sess, recentPhotos: [s.photoSrc] },
+        { ...sess, photoSrc: DEFAULT_PHOTO, recentPhotos: [DEFAULT_PHOTO] }
+      ];
+      for (const attempt of attempts) {
+        try { localStorage.setItem('paintmixer:session', JSON.stringify(attempt)); return; } catch (e) {}
+      }
+    }, 400);
   }
 
   showToast(text) {
@@ -142,26 +195,51 @@ class ColourMixer extends React.Component {
         buckets.set(key, cur);
       }
     }
-    const sorted = [...buckets.values()].sort((a, b) => b.n - a.n);
-    const dabs = sorted.slice(0, 5).map(c => this.mix.rgbToHex({ r: c.r / c.n, g: c.g / c.n, b: c.b / c.n }));
-    while (dabs.length < 5 && dabs.length > 0) dabs.push(dabs[dabs.length - 1]);
+    // Weight buckets by saturation, not just pixel count — otherwise photos of
+    // paintings on a wall/table yield five dabs of wall-white and table-brown
+    // while the colourful subject loses the vote. Near-black/near-white buckets
+    // are further discounted, and picked dabs must differ visibly (ΔE) so the
+    // five aren't all shades of the same dominant colour.
+    const cands = [...buckets.values()].map(c => {
+      const rgb = { r: c.r / c.n, g: c.g / c.n, b: c.b / c.n };
+      const hsl = this.mix.rgbToHsl(rgb);
+      const extreme = hsl.l < 0.08 || hsl.l > 0.94;
+      return {
+        rgb,
+        lab: this.mix.rgbToLab(rgb),
+        score: c.n * (0.15 + hsl.s) * (extreme ? 0.25 : 1)
+      };
+    }).sort((a, b) => b.score - a.score);
+    const picked = [];
+    for (const cand of cands) {
+      if (picked.length >= 5) break;
+      if (picked.every(p => this.mix.deltaE(p.lab, cand.lab) > 14)) picked.push(cand);
+    }
+    for (const cand of cands) { // top up if the diversity filter left gaps
+      if (picked.length >= 5) break;
+      if (!picked.includes(cand)) picked.push(cand);
+    }
+    const dabs = picked.map(c => this.mix.rgbToHex(c.rgb));
     this.setState({ dabs });
-    if (!this.state.hasPick && dabs.length) {
+    if (!this.state.hasPick && dabs.length && !this._restoredTarget) {
       this.setState({ targetHex: dabs[0] });
     }
   }
 
-  handlePhotoClick = e => {
+  samplePhotoPoint(e) {
     if (!this.imgEl || !this.sampleCanvas) return;
     const rect = this.imgEl.getBoundingClientRect();
     const Wd = rect.width, Hd = rect.height;
-    const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
     const Wn = this.imgEl.naturalWidth, Hn = this.imgEl.naturalHeight;
-    // Invert the object-fit:cover crop to map click coords -> natural coords
-    const scale = Math.max(Wd / Wn, Hd / Hn);
+    if (!Wd || !Hd || !Wn || !Hn) return;
+    // Invert the object-fit:contain letterbox to map pointer coords -> natural
+    // coords; drags that wander into the letterbox clamp to the nearest edge.
+    const scale = Math.min(Wd / Wn, Hd / Hn);
     const dispW = Wn * scale, dispH = Hn * scale;
-    const offX = (dispW - Wd) / 2, offY = (dispH - Hd) / 2;
-    const imgX = (clickX + offX) / scale, imgY = (clickY + offY) / scale;
+    const offX = (Wd - dispW) / 2, offY = (Hd - dispH) / 2;
+    const x = Math.min(offX + dispW - 0.5, Math.max(offX, e.clientX - rect.left));
+    const y = Math.min(offY + dispH - 0.5, Math.max(offY, e.clientY - rect.top));
+    const imgX = (x - offX) / scale, imgY = (y - offY) / scale;
     const canvas = this.sampleCanvas;
     const cx = Math.min(canvas.width - 1, Math.max(0, Math.round(imgX * (canvas.width / Wn))));
     const cy = Math.min(canvas.height - 1, Math.max(0, Math.round(imgY * (canvas.height / Hn))));
@@ -171,9 +249,20 @@ class ColourMixer extends React.Component {
     this.setState({
       targetHex: hex,
       hasPick: true,
-      pickPct: { x: (clickX / Wd) * 100, y: (clickY / Hd) * 100 }
+      pickPct: { x: (x / Wd) * 100, y: (y / Hd) * 100 }
     });
+  }
+
+  handlePhotoPointerDown = e => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    this._photoDragging = true;
+    this.samplePhotoPoint(e);
   };
+  handlePhotoPointerMove = e => {
+    if (this._photoDragging) this.samplePhotoPoint(e);
+  };
+  handlePhotoPointerUp = () => { this._photoDragging = false; };
 
   selectDab = hex => {
     this.setState({ targetHex: hex, hasPick: false });
@@ -191,11 +280,28 @@ class ColourMixer extends React.Component {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      const src = ev.target.result;
-      const recent = [src, ...this.state.recentPhotos.filter(p => p !== src)].slice(0, 5);
-      this.dabsComputed = false;
-      this.sampleCanvas = null;
-      this.setState({ photoSrc: src, recentPhotos: recent, source: 'photo', showChangePhoto: false, hasPick: false });
+      // Re-encode through a canvas: caps huge camera photos to a size that
+      // fits localStorage (so the session survives refreshes) and strips the
+      // photo's EXIF metadata as a side effect.
+      const img = new Image();
+      img.onload = () => {
+        let src = ev.target.result;
+        const scale = Math.min(1, UPLOAD_MAX_SIDE / Math.max(img.width, img.height));
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          src = canvas.toDataURL('image/jpeg', 0.85);
+        } catch (e) {}
+        const recent = [src, ...this.state.recentPhotos.filter(p => p !== src)].slice(0, 5);
+        this.dabsComputed = false;
+        this.sampleCanvas = null;
+        this._restoredTarget = false;
+        this.setState({ photoSrc: src, recentPhotos: recent, source: 'photo', showChangePhoto: false, hasPick: false });
+      };
+      img.onerror = () => this.showToast('That file doesn’t look like an image');
+      img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
   }
@@ -214,6 +320,7 @@ class ColourMixer extends React.Component {
   selectRecentPhoto = src => {
     this.dabsComputed = false;
     this.sampleCanvas = null;
+    this._restoredTarget = false;
     this.setState({ photoSrc: src, source: 'photo', showChangePhoto: false, hasPick: false });
   };
 
@@ -297,7 +404,7 @@ class ColourMixer extends React.Component {
   };
 
   openMyPaints = () => this.setState({ showMyPaints: true });
-  closeMyPaints = () => this.setState({ showMyPaints: false, showPickList: false, showTypeName: false });
+  closeMyPaints = () => this.setState({ showMyPaints: false, showPickList: false, showTypeName: false, confirmClear: false });
 
   togglePickList = () => this.setState({ showPickList: !this.state.showPickList, showTypeName: false });
   toggleTypeName = () => this.setState({ showTypeName: !this.state.showTypeName, showPickList: false });
@@ -320,6 +427,25 @@ class ColourMixer extends React.Component {
   handlePhotographTubes = () => {
     this.setState({ showPickList: true, showTypeName: false });
     this.showToast('Photo detection is coming soon — pick your tubes below for now');
+  };
+
+  // Two-tap confirm (in the page's own style, no browser dialog): first tap
+  // arms the link for 4s, second tap clears the shelf for the current medium.
+  removeAllPaints = () => {
+    const medium = this.state.medium;
+    const count = (this.state.inventory[medium] || []).length;
+    if (!count) return;
+    if (!this.state.confirmClear) {
+      clearTimeout(this._clearTimer);
+      this.setState({ confirmClear: true });
+      this._clearTimer = setTimeout(() => this.setState({ confirmClear: false }), 4000);
+      return;
+    }
+    clearTimeout(this._clearTimer);
+    const label = (this.data.MEDIUM_LABELS[medium] || medium).toLowerCase();
+    const inventory = { ...this.state.inventory, [medium]: [] };
+    this.setState({ inventory, confirmClear: false }, () => this.persist());
+    this.showToast('Shelf cleared — recipes now draw on the full ' + label + ' range');
   };
 
   // ---------- shopping list ----------
@@ -363,7 +489,14 @@ class ColourMixer extends React.Component {
         ceilingMatch = recipe.matchPercent;
       } else {
         const ownedIds = new Set(inventoryPigments.map(p => p.id));
-        const catalogBest = this.mix.findRecipe(this.state.targetHex, fullCatalog, MIX_FN);
+        // Don't suggest buying a near-twin of a tube already on the shelf
+        // (e.g. Artists' Titanium White when Winton Titanium White is owned).
+        const ownedLabs = inventoryPigments.map(p => this.mix.rgbToLab(this.mix.hexToRgb(p.hex)));
+        const upgradePool = fullCatalog.filter(p =>
+          ownedIds.has(p.id) ||
+          ownedLabs.every(lab => this.mix.deltaE(lab, this.mix.rgbToLab(this.mix.hexToRgb(p.hex))) > 3)
+        );
+        const catalogBest = this.mix.findRecipe(this.state.targetHex, upgradePool, MIX_FN);
         const missing = catalogBest ? catalogBest.items.filter(it => !ownedIds.has(it.pigment.id)) : [];
         if (catalogBest && missing.length && catalogBest.matchPercent > recipe.matchPercent + 1) {
           buy = { items: missing, matchPercent: catalogBest.matchPercent };
@@ -491,11 +624,11 @@ class ColourMixer extends React.Component {
     const q = this.state.pickListQuery.trim().toLowerCase();
     const pickListResults = this.getPigments(medium)
       .filter(p => !q || (p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q)))
-      .slice(0, 40)
+      .slice(0, 200)
       .map(p => {
         const owned = ownedIds.has(p.id);
         return {
-          id: p.id, name: p.name, hex: p.hex, code: p.code || '',
+          id: p.id, name: p.name, brand: p.brand, hex: p.hex, code: p.code || '',
           onToggle: () => this.toggleInventory(p.id),
           checkboxStyle: {
             width: 15, height: 15, borderRadius: 3, flex: 'none',
@@ -560,7 +693,10 @@ class ColourMixer extends React.Component {
       isPhotoSource: this.state.source === 'photo',
       isWheelSource: this.state.source === 'wheel',
       photoSrc: this.state.photoSrc,
-      photoImgStyle: { display: 'block', width: '100%', height: isMobile ? 240 : 340, objectFit: 'cover', cursor: 'crosshair' },
+      // height:auto + max-height + contain shows the whole photo whatever its
+      // aspect ratio (letterboxing only very tall images) instead of cropping;
+      // touch-action:none lets a finger drag the picker without scrolling.
+      photoImgStyle: { display: 'block', width: '100%', height: 'auto', maxHeight: isMobile ? 320 : 440, objectFit: 'contain', cursor: 'crosshair', touchAction: 'none' },
       hasPick: this.state.hasPick,
       pickMarkerStyle: {
         position: 'absolute', left: this.state.pickPct.x + '%', top: this.state.pickPct.y + '%',
@@ -654,8 +790,13 @@ class ColourMixer extends React.Component {
           ${v.isPhotoSource && html`
             <div style="display:flex;flex-direction:column;gap:14px">
               <div style="position:relative;border:1px solid #d9d0bd;padding:8px;background:#fffdf7">
-                <img src=${v.photoSrc} alt="Your reference photo" onLoad=${this.handleImgLoad} onClick=${this.handlePhotoClick} ref=${this.setImgRef} style=${v.photoImgStyle} />
-                ${v.hasPick && html`<div style=${v.pickMarkerStyle}></div>`}
+                <div style="position:relative">
+                  <img src=${v.photoSrc} alt="Your reference photo" draggable=${false}
+                       onLoad=${this.handleImgLoad} ref=${this.setImgRef} style=${v.photoImgStyle}
+                       onPointerDown=${this.handlePhotoPointerDown} onPointerMove=${this.handlePhotoPointerMove}
+                       onPointerUp=${this.handlePhotoPointerUp} onPointerCancel=${this.handlePhotoPointerUp} />
+                  ${v.hasPick && html`<div style=${v.pickMarkerStyle}></div>`}
+                </div>
                 <span onClick=${this.openChangePhoto} style="position:absolute;right:16px;top:16px;font-family:'Newsreader',Georgia,serif;font-size:12px;background:rgba(255,253,247,.92);border:1px solid #d9d0bd;border-radius:3px;padding:6px 12px;cursor:pointer">Change source</span>
               </div>
               <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
@@ -663,7 +804,7 @@ class ColourMixer extends React.Component {
                   <div key=${i} onClick=${dab.onSelect} style=${dab.style}></div>
                 `)}
               </div>
-              <p style="margin:0;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;font-style:italic;color:#8a7f6d">Tap anywhere on the photo to pick a colour — or choose one of the five dabs pulled from it.</p>
+              <p style="margin:0;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;font-style:italic;color:#8a7f6d">Tap or drag anywhere on the photo to pick a colour — or choose one of the five dabs pulled from it.</p>
             </div>
           `}
 
@@ -814,6 +955,10 @@ class ColourMixer extends React.Component {
               <span onClick=${this.toggleTypeName} style="flex:1;min-width:140px;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #b9ab8d;border-radius:3px;color:#6d6353;padding:8px 0;cursor:pointer">Type a name…</span>
             </div>
 
+            ${v.inventoryCount > 0 && html`
+              <span onClick=${this.removeAllPaints} style=${{ alignSelf: 'flex-end', marginTop: -10, fontFamily: "'Newsreader',Georgia,serif", fontSize: 12, textDecoration: 'underline', color: this.state.confirmClear ? '#2b2620' : '#6d6353', fontWeight: this.state.confirmClear ? 600 : 400, cursor: 'pointer' }}>${this.state.confirmClear ? 'Tap again to clear all ' + v.inventoryCount + ' tubes' : 'Remove all ' + v.inventoryCount + ' tubes'}</span>
+            `}
+
             ${v.showPickList && html`
               <div style="display:flex;flex-direction:column;gap:8px;background:#fffdf7;border:1px solid #d9d0bd;padding:14px 16px">
                 <input value=${v.pickListQuery} onChange=${this.handlePickListQueryChange} placeholder=${'Search the full ' + v.mediumLabel + ' range…'} style="font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #d9d0bd;border-radius:3px;padding:8px 11px;color:#2b2620" />
@@ -822,8 +967,11 @@ class ColourMixer extends React.Component {
                     <div key=${p.id} onClick=${p.onToggle} style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer">
                       <span style=${p.checkboxStyle}></span>
                       <span style=${{ width: 18, height: 18, borderRadius: '50%', background: p.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)', flex: 'none' }}></span>
-                      <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;color:#2b2620">${p.name}</span>
-                      <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a7f6d;margin-left:auto">${p.code}</span>
+                      <div style="display:flex;flex-direction:column;min-width:0">
+                        <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;color:#2b2620">${p.name}</span>
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#a99c85;text-transform:uppercase">${p.brand}</span>
+                      </div>
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a7f6d;margin-left:auto;flex:none">${p.code}</span>
                     </div>
                   `)}
                 </div>

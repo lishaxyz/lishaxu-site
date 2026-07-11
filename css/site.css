@@ -363,14 +363,16 @@ body {
 /* ---------- tools page ---------- */
 
 .tools-intro {
-  padding: 56px clamp(20px, 5vw, 48px) 0;
+  padding: 22px clamp(20px, 5vw, 48px) 0;
   text-align: center;
 }
 
 .tools-intro p {
   max-width: 640px;
   margin: 0 auto;
-  font-size: 16px;
+  font-family: Lora, Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
   line-height: 1.75;
   color: #3c4556;
   text-wrap: pretty;
