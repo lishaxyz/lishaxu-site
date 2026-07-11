@@ -16,6 +16,40 @@ const MIX_FN = mixLib.kmMix; // realistic Kubelka-Munk mixing
 const DEFAULT_PHOTO = 'assets/painting.webp';
 const UPLOAD_MAX_SIDE = 1600; // uploads are downscaled so they fit localStorage
 
+// Tesseract.js (vendored) — loaded on demand the first time the user tries
+// "Photograph tubes"; OCR runs entirely in the browser.
+const TESSERACT_JS = '../vendor/tesseract/tesseract.min.js';
+const TESSERACT_PATHS = {
+  workerPath: new URL('../vendor/tesseract/worker.min.js', location.href).href,
+  corePath: new URL('../vendor/tesseract/core', location.href).href,
+  langPath: new URL('../vendor/tesseract/lang', location.href).href
+};
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+// Small capped Levenshtein for typo-tolerant token matching (OCR misreads).
+function editDistance(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = [];
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
 /* h() wraps React.createElement and converts string style attributes
    (kept verbatim from the design template) into React style objects. */
 function cssToObj(css) {
@@ -56,8 +90,10 @@ class ColourMixer extends React.Component {
     shoppingList: [],
     showChangePhoto: false,
     showMyPaints: false,
-    showPickList: false,
-    showTypeName: false,
+    paintsTab: null, // null | 'photo' | 'list' | 'create'
+    tubesStatus: 'idle', // idle | loading | reading | done | error
+    tubesProgress: 0,
+    tubesResults: [],
     pickListQuery: '',
     addNameValue: '',
     addHexValue: '#8a6d3b',
@@ -113,6 +149,7 @@ class ColourMixer extends React.Component {
     clearTimeout(this._sessTimer);
     clearTimeout(this._toastTimer);
     clearTimeout(this._clearTimer);
+    if (this._ocrWorkerPromise) this._ocrWorkerPromise.then(w => w.terminate()).catch(() => {});
   }
 
   persist() {
@@ -404,10 +441,10 @@ class ColourMixer extends React.Component {
   };
 
   openMyPaints = () => this.setState({ showMyPaints: true });
-  closeMyPaints = () => this.setState({ showMyPaints: false, showPickList: false, showTypeName: false, confirmClear: false });
+  closeMyPaints = () => this.setState({ showMyPaints: false, paintsTab: null, confirmClear: false });
 
-  togglePickList = () => this.setState({ showPickList: !this.state.showPickList, showTypeName: false });
-  toggleTypeName = () => this.setState({ showTypeName: !this.state.showTypeName, showPickList: false });
+  // Segmented control: tapping the active tab collapses its panel.
+  setPaintsTab = tab => this.setState({ paintsTab: this.state.paintsTab === tab ? null : tab });
   handlePickListQueryChange = e => this.setState({ pickListQuery: e.target.value });
 
   handleAddNameChange = e => this.setState({ addNameValue: e.target.value });
@@ -420,13 +457,126 @@ class ColourMixer extends React.Component {
     const pigment = { id, brand: 'Custom', name, code: '', hex: this.state.addHexValue, medium };
     const customPigments = [...this.state.customPigments, pigment];
     const inventory = { ...this.state.inventory, [medium]: [...(this.state.inventory[medium] || []), id] };
-    this.setState({ customPigments, inventory, addNameValue: '', addHexValue: '#8a6d3b', showTypeName: false }, () => this.persist());
+    this.setState({ customPigments, inventory, addNameValue: '', addHexValue: '#8a6d3b', paintsTab: null }, () => this.persist());
     this.showToast(name + ' added to your shelf');
   };
 
-  handlePhotographTubes = () => {
-    this.setState({ showPickList: true, showTypeName: false });
-    this.showToast('Photo detection is coming soon — pick your tubes below for now');
+  // ---------- photograph tubes (OCR) ----------
+  setTubesInputRef = el => { this.tubesInputEl = el; };
+  triggerTubesInput = () => { if (this.tubesInputEl) this.tubesInputEl.click(); };
+
+  ensureOcrWorker() {
+    if (!this._ocrWorkerPromise) {
+      this._ocrWorkerPromise = (async () => {
+        if (!window.Tesseract) await loadScript(TESSERACT_JS);
+        return window.Tesseract.createWorker('eng', 1, {
+          ...TESSERACT_PATHS,
+          logger: m => {
+            if (m.status === 'recognizing text') this.setState({ tubesProgress: m.progress || 0 });
+          }
+        });
+      })();
+      this._ocrWorkerPromise.catch(() => { this._ocrWorkerPromise = null; });
+    }
+    return this._ocrWorkerPromise;
+  }
+
+  handleTubesFile = e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => this.runTubesOcr(img);
+      img.onerror = () => this.setState({ tubesStatus: 'error' });
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  async runTubesOcr(img) {
+    this.setState({ tubesStatus: 'loading', tubesProgress: 0, tubesResults: [] });
+    try {
+      const worker = await this.ensureOcrWorker();
+      // Downscale for OCR speed; labels stay readable at ~2000px.
+      const scale = Math.min(1, 2000 / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      this.setState({ tubesStatus: 'reading' });
+      const { data } = await worker.recognize(canvas);
+      const results = this.matchTubesInText(data.text || '');
+      this.setState({ tubesStatus: 'done', tubesResults: results });
+      if (!results.length) return;
+      const fresh = results.filter(r => !r.owned).length;
+      this.showToast(fresh ? ('Found ' + results.length + ' paint name' + (results.length > 1 ? 's' : '') + ' — confirm below') : 'Found ' + results.length + ' — all already on your shelf');
+    } catch (err) {
+      this.setState({ tubesStatus: 'error' });
+    }
+  }
+
+  // Match OCR text against the current medium's catalogue: every significant
+  // word of a paint's name must appear (with 1-char typo tolerance for longer
+  // words); pigment-code and brand-word hits raise the score, and duplicates
+  // across brands collapse to the best-scoring tube.
+  matchTubesInText(text) {
+    const norm = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const tokens = [...new Set(norm(text).split(' ').filter(w => w.length > 1))];
+    const tokenSet = new Set(tokens);
+    const hasWord = w => {
+      if (tokenSet.has(w)) return true;
+      if (w.length < 5) return false;
+      return tokens.some(tk => editDistance(tk, w, 1) <= 1);
+    };
+    const codeSet = new Set((text.toUpperCase().match(/P[A-Z]{0,2}\d{1,3}(?::\d)?/g) || []));
+    const medium = this.state.medium;
+    const ownedIds = new Set(this.state.inventory[medium] || []);
+    const NOISE = new Set(['hue', 'no', 'the', 'and']);
+    const scored = [];
+    this.getPigments(medium).forEach(p => {
+      if (p.water) return;
+      const nameWords = norm(p.name).split(' ').filter(w => w.length > 1);
+      const sig = nameWords.filter(w => !NOISE.has(w));
+      if (!sig.length || !sig.every(hasWord)) return;
+      let score = sig.length * 2;
+      score += nameWords.filter(w => NOISE.has(w) && hasWord(w)).length; // "Hue" present → prefer the Hue tube
+      if ((p.code || '').split('·').some(c => codeSet.has(c.toUpperCase()))) score += 2;
+      score += norm(p.brand).split(' ').filter(w => w.length > 2 && hasWord(w)).length;
+      scored.push({ pigment: p, score });
+    });
+    // Collapse same-named tubes from different brands to the likeliest one
+    const byName = {};
+    scored.forEach(s => {
+      const key = norm(s.pigment.name);
+      if (!byName[key] || s.score > byName[key].score || (s.score === byName[key].score && ownedIds.has(s.pigment.id))) byName[key] = s;
+    });
+    return Object.values(byName)
+      .sort((a, b) => b.score - a.score)
+      .map(({ pigment }) => ({
+        id: pigment.id, name: pigment.name, brand: pigment.brand, code: pigment.code || '', hex: pigment.hex,
+        owned: ownedIds.has(pigment.id),
+        checked: !ownedIds.has(pigment.id)
+      }));
+  }
+
+  toggleTubeResult = id => {
+    const tubesResults = this.state.tubesResults.map(r =>
+      r.id === id && !r.owned ? { ...r, checked: !r.checked } : r
+    );
+    this.setState({ tubesResults });
+  };
+
+  addFoundTubes = () => {
+    const medium = this.state.medium;
+    const toAdd = this.state.tubesResults.filter(r => r.checked && !r.owned).map(r => r.id);
+    if (!toAdd.length) return;
+    const list = this.state.inventory[medium] || [];
+    const inventory = { ...this.state.inventory, [medium]: [...list, ...toAdd.filter(id => !list.includes(id))] };
+    const tubesResults = this.state.tubesResults.map(r => toAdd.includes(r.id) ? { ...r, owned: true, checked: false } : r);
+    this.setState({ inventory, tubesResults }, () => this.persist());
+    this.showToast(toAdd.length + ' tube' + (toAdd.length > 1 ? 's' : '') + ' added to your shelf');
   };
 
   // Two-tap confirm (in the page's own style, no browser dialog): first tap
@@ -748,8 +898,29 @@ class ColourMixer extends React.Component {
       showMyPaints: this.state.showMyPaints,
       myPaintsWidth: isMobile ? '100%' : '460px',
       brandCount: brandsSet.size,
-      showPickList: this.state.showPickList,
-      showTypeName: this.state.showTypeName,
+      paintsTab: this.state.paintsTab,
+      // Segmented control (same pattern as the medium switcher): all tabs sit
+      // in one pill track; only the selected tab is dark.
+      paintsTabs: [
+        { key: 'photo', label: 'Photograph tubes' },
+        { key: 'list', label: 'Pick from a list' },
+        { key: 'create', label: 'Create your own' }
+      ].map(t => ({
+        ...t,
+        onSelect: () => this.setPaintsTab(t.key),
+        style: {
+          flex: '1 1 auto', minWidth: 110, textAlign: 'center',
+          fontFamily: "'Newsreader',Georgia,serif", fontSize: '12.5px',
+          fontWeight: this.state.paintsTab === t.key ? 600 : 400,
+          padding: '8px 4px', borderRadius: 999, cursor: 'pointer',
+          background: this.state.paintsTab === t.key ? '#2b2620' : 'transparent',
+          color: this.state.paintsTab === t.key ? '#f4eee2' : '#6d6353'
+        }
+      })),
+      tubesStatus: this.state.tubesStatus,
+      tubesPct: Math.round((this.state.tubesProgress || 0) * 100),
+      tubesResults: this.state.tubesResults,
+      tubesAddCount: this.state.tubesResults.filter(r => r.checked && !r.owned).length,
       pickListQuery: this.state.pickListQuery,
       pickListResults,
       addHexValue: this.state.addHexValue,
@@ -949,40 +1120,79 @@ class ColourMixer extends React.Component {
               <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;color:#8a7f6d">${v.inventoryCount} TUBES · ${v.brandCount} MAKERS · ${v.mediumLabel.toUpperCase()}</span>
             </div>
 
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <span onClick=${this.handlePhotographTubes} style="flex:1;min-width:140px;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;background:#2b2620;color:#f4eee2;border-radius:3px;padding:9px 0;cursor:pointer">Photograph tubes</span>
-              <span onClick=${this.togglePickList} style="flex:1;min-width:140px;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #b9ab8d;border-radius:3px;color:#6d6353;padding:8px 0;cursor:pointer">Pick from a list</span>
-              <span onClick=${this.toggleTypeName} style="flex:1;min-width:140px;text-align:center;font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #b9ab8d;border-radius:3px;color:#6d6353;padding:8px 0;cursor:pointer">Type a name…</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;background:#e9e0cd;border-radius:999px;padding:4px">
+              ${v.paintsTabs.map(t => html`
+                <span key=${t.key} onClick=${t.onSelect} style=${t.style}>${t.label}</span>
+              `)}
             </div>
 
             ${v.inventoryCount > 0 && html`
               <span onClick=${this.removeAllPaints} style=${{ alignSelf: 'flex-end', marginTop: -10, fontFamily: "'Newsreader',Georgia,serif", fontSize: 12, textDecoration: 'underline', color: this.state.confirmClear ? '#2b2620' : '#6d6353', fontWeight: this.state.confirmClear ? 600 : 400, cursor: 'pointer' }}>${this.state.confirmClear ? 'Tap again to clear all ' + v.inventoryCount + ' tubes' : 'Remove all ' + v.inventoryCount + ' tubes'}</span>
             `}
 
-            ${v.showPickList && html`
+            ${v.paintsTab === 'photo' && html`
+              <div style="display:flex;flex-direction:column;gap:12px;background:#fffdf7;border:1px solid #d9d0bd;padding:14px 16px">
+                <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;line-height:1.55;color:#6d6353">Snap your tubes with the labels readable — a few tubes per photo works best. The photo is read right here on your device and never uploaded.</span>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+                  <span onClick=${this.triggerTubesInput} style="font-family:'Newsreader',Georgia,serif;font-size:13px;background:#2b2620;color:#f4eee2;border-radius:3px;padding:9px 20px;cursor:pointer">Choose a photo…</span>
+                  <input type="file" accept="image/*" ref=${this.setTubesInputRef} onChange=${this.handleTubesFile} style="display:none" />
+                  ${v.tubesStatus === 'loading' && html`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:#8a7f6d">WARMING UP THE READER…</span>`}
+                  ${v.tubesStatus === 'reading' && html`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:#8a7f6d">READING LABELS… ${v.tubesPct}%</span>`}
+                </div>
+                ${v.tubesStatus === 'error' && html`
+                  <span style="font-family:'Newsreader',Georgia,serif;font-size:12.5px;font-style:italic;color:#8a7f6d">Something went wrong reading that photo — try again, or pick from a list instead.</span>
+                `}
+                ${v.tubesStatus === 'done' && v.tubesResults.length === 0 && html`
+                  <span style="font-family:'Newsreader',Georgia,serif;font-size:12.5px;font-style:italic;color:#8a7f6d">Couldn’t make out any paint names — try a closer, sharper shot with the labels facing the camera, or pick from a list instead.</span>
+                `}
+                ${v.tubesResults.length > 0 && html`
+                  <div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;padding-right:4px">
+                    ${v.tubesResults.map(r => html`
+                      <div key=${r.id} onClick=${() => this.toggleTubeResult(r.id)} style=${{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', cursor: r.owned ? 'default' : 'pointer', opacity: r.owned ? 0.55 : 1 }}>
+                        <span style=${{ width: 15, height: 15, borderRadius: 3, flex: 'none', border: '1.5px solid ' + ((r.checked || r.owned) ? '#2b2620' : '#b9ab8d'), background: (r.checked || r.owned) ? '#2b2620' : 'transparent' }}></span>
+                        <span style=${{ width: 18, height: 18, borderRadius: '50%', background: r.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)', flex: 'none' }}></span>
+                        <div style="display:flex;flex-direction:column;min-width:0;flex:1">
+                          <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;color:#2b2620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</span>
+                          <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#a99c85;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.brand}</span>
+                        </div>
+                        ${r.owned
+                          ? html`<span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#a99c85;flex:none">ON YOUR SHELF</span>`
+                          : html`<span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a7f6d;flex:none">${r.code}</span>`}
+                      </div>
+                    `)}
+                  </div>
+                  <span onClick=${this.addFoundTubes} style=${{ alignSelf: 'flex-start', fontFamily: "'Newsreader',Georgia,serif", fontSize: 13, background: '#2b2620', color: '#f4eee2', borderRadius: 3, padding: '9px 20px', cursor: v.tubesAddCount ? 'pointer' : 'default', opacity: v.tubesAddCount ? 1 : 0.45 }}>Add ${v.tubesAddCount} tube${v.tubesAddCount === 1 ? '' : 's'} to My Paints</span>
+                `}
+              </div>
+            `}
+
+            ${v.paintsTab === 'list' && html`
               <div style="display:flex;flex-direction:column;gap:8px;background:#fffdf7;border:1px solid #d9d0bd;padding:14px 16px">
                 <input value=${v.pickListQuery} onChange=${this.handlePickListQueryChange} placeholder=${'Search the full ' + v.mediumLabel + ' range…'} style="font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #d9d0bd;border-radius:3px;padding:8px 11px;color:#2b2620" />
-                <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto">
+                <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding-right:4px">
                   ${v.pickListResults.map(p => html`
                     <div key=${p.id} onClick=${p.onToggle} style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer">
                       <span style=${p.checkboxStyle}></span>
                       <span style=${{ width: 18, height: 18, borderRadius: '50%', background: p.hex, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)', flex: 'none' }}></span>
-                      <div style="display:flex;flex-direction:column;min-width:0">
-                        <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;color:#2b2620">${p.name}</span>
-                        <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#a99c85;text-transform:uppercase">${p.brand}</span>
+                      <div style="display:flex;flex-direction:column;min-width:0;flex:1">
+                        <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;color:#2b2620;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</span>
+                        <span style="font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:.06em;color:#a99c85;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.brand}</span>
                       </div>
-                      <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a7f6d;margin-left:auto;flex:none">${p.code}</span>
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#8a7f6d;flex:none">${p.code}</span>
                     </div>
                   `)}
                 </div>
               </div>
             `}
 
-            ${v.showTypeName && html`
-              <div style="display:flex;gap:8px;align-items:center;background:#fffdf7;border:1px solid #d9d0bd;padding:14px 16px">
-                <input type="color" value=${v.addHexValue} onChange=${this.handleAddHexChange} style="width:36px;height:36px;border:none;border-radius:4px;padding:0;background:none;flex:none;cursor:pointer" />
-                <input value=${v.addNameValue} onChange=${this.handleAddNameChange} placeholder="Paint name — e.g. Naples Yellow" style="flex:1;font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #d9d0bd;border-radius:3px;padding:8px 11px;color:#2b2620" />
-                <span onClick=${this.submitCustomPigment} style="font-family:'Newsreader',Georgia,serif;font-size:12.5px;border:1px solid #2b2620;border-radius:3px;padding:8px 14px;cursor:pointer;color:#2b2620">Add</span>
+            ${v.paintsTab === 'create' && html`
+              <div style="display:flex;flex-direction:column;gap:12px;background:#fffdf7;border:1px solid #d9d0bd;padding:14px 16px">
+                <span style="font-family:'Newsreader',Georgia,serif;font-size:13px;line-height:1.55;color:#6d6353">Add a paint we don’t have listed: <strong style="font-weight:600">tap the swatch</strong> to open a colour picker and match it to your paint as it looks straight from the tube, then give it a name.</span>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input type="color" value=${v.addHexValue} onChange=${this.handleAddHexChange} title="Tap to choose the paint’s colour" style="width:36px;height:36px;border:1px solid #d9d0bd;border-radius:4px;padding:2px;background:#fffdf7;flex:none;cursor:pointer" />
+                  <input value=${v.addNameValue} onChange=${this.handleAddNameChange} placeholder="Paint name — e.g. Naples Yellow" style="flex:1;min-width:0;font-family:'Newsreader',Georgia,serif;font-size:13px;border:1px solid #d9d0bd;border-radius:3px;padding:8px 11px;color:#2b2620" />
+                  <span onClick=${this.submitCustomPigment} style="font-family:'Newsreader',Georgia,serif;font-size:12.5px;border:1px solid #2b2620;border-radius:3px;padding:8px 14px;cursor:pointer;color:#2b2620;flex:none">Add</span>
+                </div>
               </div>
             `}
 

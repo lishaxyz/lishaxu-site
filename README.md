@@ -25,6 +25,8 @@ css/site.css          Shared site styles (incl. tools-page card styles)
 site-assets/          Paintings + portrait + tool preview cards (webp)
 prints/               Print images (site + planner catalog)
 vendor/               React 18.3.1 + htm 3.1.1 (served locally; planner + colourmix)
+  tesseract/          Tesseract.js 5.1.1 OCR (colourmix "Photograph tubes";
+                      loaded on demand, runs fully in the browser)
 CNAME                 Custom domain for GitHub Pages (lishaxu.com)
 ```
 
