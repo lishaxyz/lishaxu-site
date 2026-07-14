@@ -93,6 +93,7 @@ class ColourMixer extends React.Component {
     paintsTab: null, // null | 'photo' | 'list' | 'create'
     tubesStatus: 'idle', // idle | loading | reading | done | error
     tubesProgress: 0,
+    tubesPass: [0, 0], // [current rotation pass, total passes]
     tubesResults: [],
     pickListQuery: '',
     addNameValue: '',
@@ -469,12 +470,16 @@ class ColourMixer extends React.Component {
     if (!this._ocrWorkerPromise) {
       this._ocrWorkerPromise = (async () => {
         if (!window.Tesseract) await loadScript(TESSERACT_JS);
-        return window.Tesseract.createWorker('eng', 1, {
+        const worker = await window.Tesseract.createWorker('eng', 1, {
           ...TESSERACT_PATHS,
           logger: m => {
             if (m.status === 'recognizing text') this.setState({ tubesProgress: m.progress || 0 });
           }
         });
+        // Sparse-text segmentation: tubes on a table aren't a document page,
+        // just scattered scraps of text.
+        await worker.setParameters({ tessedit_pageseg_mode: '11' });
+        return worker;
       })();
       this._ocrWorkerPromise.catch(() => { this._ocrWorkerPromise = null; });
     }
@@ -496,18 +501,33 @@ class ColourMixer extends React.Component {
   };
 
   async runTubesOcr(img) {
-    this.setState({ tubesStatus: 'loading', tubesProgress: 0, tubesResults: [] });
+    this.setState({ tubesStatus: 'loading', tubesProgress: 0, tubesPass: [0, 0], tubesResults: [] });
     try {
       const worker = await this.ensureOcrWorker();
-      // Downscale for OCR speed; labels stay readable at ~2000px.
-      const scale = Math.min(1, 2000 / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Downscale for OCR speed; labels stay readable at ~1500px.
+      const scale = Math.min(1, 1500 / Math.max(img.width, img.height));
+      const base = document.createElement('canvas');
+      base.width = Math.max(1, Math.round(img.width * scale));
+      base.height = Math.max(1, Math.round(img.height * scale));
+      base.getContext('2d').drawImage(img, 0, 0, base.width, base.height);
+      // Tubes lie at arbitrary angles and OCR only reads roughly horizontal
+      // text, so scan the photo at several rotations and pool everything read.
+      // 15° steps keep every label within ~8° of one pass, inside the OCR
+      // engine's skew tolerance; keeping only confident words drops the
+      // garbage the off-angle passes produce.
+      const angles = [0, -15, 15, -30, 30, -45, 45, -60, 60, -75, 75, 90, -90];
+      let pooled = '';
       this.setState({ tubesStatus: 'reading' });
-      const { data } = await worker.recognize(canvas);
-      const results = this.matchTubesInText(data.text || '');
+      for (let i = 0; i < angles.length; i++) {
+        this.setState({ tubesPass: [i + 1, angles.length], tubesProgress: 0 });
+        const { data } = await worker.recognize(this.rotatedCanvas(base, angles[i]));
+        const words = (data.words || [])
+          .filter(w => (w.confidence || 0) >= 50)
+          .map(w => w.text).join(' ');
+        pooled += '\n' + (words || data.text || '');
+      }
+      window.__pmLastOcrText = pooled; // debugging aid: raw text of the last scan
+      const results = this.matchTubesInText(pooled);
       this.setState({ tubesStatus: 'done', tubesResults: results });
       if (!results.length) return;
       const fresh = results.filter(r => !r.owned).length;
@@ -515,6 +535,22 @@ class ColourMixer extends React.Component {
     } catch (err) {
       this.setState({ tubesStatus: 'error' });
     }
+  }
+
+  rotatedCanvas(base, deg) {
+    if (!deg) return base;
+    const rad = deg * Math.PI / 180;
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const c = document.createElement('canvas');
+    c.width = Math.round(base.width * cos + base.height * sin);
+    c.height = Math.round(base.width * sin + base.height * cos);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; // corners exposed by rotation should read as paper, not black
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(base, -base.width / 2, -base.height / 2);
+    return c;
   }
 
   // Match OCR text against the current medium's catalogue: every significant
@@ -528,23 +564,50 @@ class ColourMixer extends React.Component {
     const hasWord = w => {
       if (tokenSet.has(w)) return true;
       if (w.length < 5) return false;
-      return tokens.some(tk => editDistance(tk, w, 1) <= 1);
+      // long words survive bigger OCR mangling ("tramarine" → ultramarine)
+      const cap = w.length >= 8 ? 2 : 1;
+      return tokens.some(tk => editDistance(tk, w, cap) <= cap);
     };
     const codeSet = new Set((text.toUpperCase().match(/P[A-Z]{0,2}\d{1,3}(?::\d)?/g) || []));
     const medium = this.state.medium;
     const ownedIds = new Set(this.state.inventory[medium] || []);
     const NOISE = new Set(['hue', 'no', 'the', 'and']);
+    // words that appear on most tube labels and prove nothing about the brand
+    const BRAND_NOISE = new Set(['oil', 'oils', 'colour', 'colours', 'color', 'colors', 'paint', 'paints', 'artist', 'artists']);
+    const pigments = this.getPigments(medium);
+    // how many catalogue names use each word — rare words identify a tube on their own
+    const nameWordCounts = {};
+    pigments.forEach(p => {
+      new Set(norm(p.name).split(' ').filter(w => w.length > 1 && !NOISE.has(w))).forEach(w => {
+        nameWordCounts[w] = (nameWordCounts[w] || 0) + 1;
+      });
+    });
     const scored = [];
-    this.getPigments(medium).forEach(p => {
+    pigments.forEach(p => {
       if (p.water) return;
       const nameWords = norm(p.name).split(' ').filter(w => w.length > 1);
       const sig = nameWords.filter(w => !NOISE.has(w));
-      if (!sig.length || !sig.every(hasWord)) return;
-      let score = sig.length * 2;
+      if (!sig.length) return;
+      const matched = sig.filter(hasWord);
+      // Rotated/curved labels often lose a word to OCR — accept all-but-one
+      // of the significant words: freely for 3+-word names, and for 2-word
+      // names only when the surviving word is rare enough to identify the
+      // tube by itself ("crimson" → Alizarin Crimson).
+      if (matched.length < sig.length) {
+        const shortfallOk =
+          (sig.length >= 3 && matched.length === sig.length - 1) ||
+          (sig.length === 2 && matched.length === 1 && (nameWordCounts[matched[0]] || 0) <= 3);
+        if (!shortfallOk) return;
+      }
+      const full = matched.length === sig.length;
+      const codeHit = (p.code || '').split('·').some(c => codeSet.has(c.toUpperCase()));
+      const brandHits = norm(p.brand).split(' ').filter(w => w.length > 2 && !BRAND_NOISE.has(w) && hasWord(w)).length;
+      // A partial name alone is too weak — it must be corroborated by the
+      // brand or the pigment code also appearing in the photo.
+      if (!full && !brandHits && !codeHit) return;
+      let score = matched.length * 2 + brandHits + (codeHit ? 2 : 0);
       score += nameWords.filter(w => NOISE.has(w) && hasWord(w)).length; // "Hue" present → prefer the Hue tube
-      if ((p.code || '').split('·').some(c => codeSet.has(c.toUpperCase()))) score += 2;
-      score += norm(p.brand).split(' ').filter(w => w.length > 2 && hasWord(w)).length;
-      scored.push({ pigment: p, score });
+      scored.push({ pigment: p, score, sig, matched, full });
     });
     // Collapse same-named tubes from different brands to the likeliest one
     const byName = {};
@@ -552,7 +615,20 @@ class ColourMixer extends React.Component {
       const key = norm(s.pigment.name);
       if (!byName[key] || s.score > byName[key].score || (s.score === byName[key].score && ownedIds.has(s.pigment.id))) byName[key] = s;
     });
-    return Object.values(byName)
+    // Suppress echoes of other matches: a fully-matched longer name absorbs
+    // names wholly contained in it ("Titanium White" is just noise from a
+    // "Titanium Zinc White" label), and a partial match survives only if it
+    // matched a word that no fully-matched name accounts for ("Cadmium Red
+    // Deep Hue" at 2/3 words is noise when "Cadmium Red" matched exactly).
+    const candidates = Object.values(byName).filter((s, _, all) =>
+      !all.some(o => {
+        if (o === s || !o.full) return false;
+        if (s.sig.length < o.sig.length && s.sig.every(w => o.sig.includes(w))) return true;
+        if (!s.full && s.matched.every(w => o.sig.includes(w))) return true;
+        return false;
+      })
+    );
+    return candidates
       .sort((a, b) => b.score - a.score)
       .map(({ pigment }) => ({
         id: pigment.id, name: pigment.name, brand: pigment.brand, code: pigment.code || '', hex: pigment.hex,
@@ -899,25 +975,30 @@ class ColourMixer extends React.Component {
       myPaintsWidth: isMobile ? '100%' : '460px',
       brandCount: brandsSet.size,
       paintsTab: this.state.paintsTab,
-      // Segmented control (same pattern as the medium switcher): all tabs sit
-      // in one pill track; only the selected tab is dark.
+      // Three equal buttons; all share the neutral outlined look and only the
+      // selected one goes dark.
       paintsTabs: [
         { key: 'photo', label: 'Photograph tubes' },
         { key: 'list', label: 'Pick from a list' },
         { key: 'create', label: 'Create your own' }
-      ].map(t => ({
-        ...t,
-        onSelect: () => this.setPaintsTab(t.key),
-        style: {
-          flex: '1 1 auto', minWidth: 110, textAlign: 'center',
-          fontFamily: "'Newsreader',Georgia,serif", fontSize: '12.5px',
-          fontWeight: this.state.paintsTab === t.key ? 600 : 400,
-          padding: '8px 4px', borderRadius: 999, cursor: 'pointer',
-          background: this.state.paintsTab === t.key ? '#2b2620' : 'transparent',
-          color: this.state.paintsTab === t.key ? '#f4eee2' : '#6d6353'
-        }
-      })),
+      ].map(t => {
+        const active = this.state.paintsTab === t.key;
+        return {
+          ...t,
+          onSelect: () => this.setPaintsTab(t.key),
+          style: {
+            flex: '1 1 auto', minWidth: 140, textAlign: 'center',
+            fontFamily: "'Newsreader',Georgia,serif", fontSize: '13px',
+            fontWeight: active ? 600 : 400,
+            padding: '8px 0', borderRadius: 3, cursor: 'pointer',
+            border: '1px solid ' + (active ? '#2b2620' : '#b9ab8d'),
+            background: active ? '#2b2620' : 'transparent',
+            color: active ? '#f4eee2' : '#6d6353'
+          }
+        };
+      }),
       tubesStatus: this.state.tubesStatus,
+      tubesPassLabel: this.state.tubesPass[1] ? (this.state.tubesPass[0] + '/' + this.state.tubesPass[1]) : '',
       tubesPct: Math.round((this.state.tubesProgress || 0) * 100),
       tubesResults: this.state.tubesResults,
       tubesAddCount: this.state.tubesResults.filter(r => r.checked && !r.owned).length,
@@ -1120,7 +1201,7 @@ class ColourMixer extends React.Component {
               <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;color:#8a7f6d">${v.inventoryCount} TUBES · ${v.brandCount} MAKERS · ${v.mediumLabel.toUpperCase()}</span>
             </div>
 
-            <div style="display:flex;gap:6px;flex-wrap:wrap;background:#e9e0cd;border-radius:999px;padding:4px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
               ${v.paintsTabs.map(t => html`
                 <span key=${t.key} onClick=${t.onSelect} style=${t.style}>${t.label}</span>
               `)}
@@ -1137,7 +1218,7 @@ class ColourMixer extends React.Component {
                   <span onClick=${this.triggerTubesInput} style="font-family:'Newsreader',Georgia,serif;font-size:13px;background:#2b2620;color:#f4eee2;border-radius:3px;padding:9px 20px;cursor:pointer">Choose a photo…</span>
                   <input type="file" accept="image/*" ref=${this.setTubesInputRef} onChange=${this.handleTubesFile} style="display:none" />
                   ${v.tubesStatus === 'loading' && html`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:#8a7f6d">WARMING UP THE READER…</span>`}
-                  ${v.tubesStatus === 'reading' && html`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:#8a7f6d">READING LABELS… ${v.tubesPct}%</span>`}
+                  ${v.tubesStatus === 'reading' && html`<span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:#8a7f6d">READING LABELS… ANGLE ${v.tubesPassLabel} · ${v.tubesPct}%</span>`}
                 </div>
                 ${v.tubesStatus === 'error' && html`
                   <span style="font-family:'Newsreader',Georgia,serif;font-size:12.5px;font-style:italic;color:#8a7f6d">Something went wrong reading that photo — try again, or pick from a list instead.</span>
