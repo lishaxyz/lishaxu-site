@@ -504,12 +504,18 @@ class ColourMixer extends React.Component {
     this.setState({ tubesStatus: 'loading', tubesProgress: 0, tubesPass: [0, 0], tubesResults: [] });
     try {
       const worker = await this.ensureOcrWorker();
-      // Downscale for OCR speed; labels stay readable at ~1500px.
-      const scale = Math.min(1, 1500 / Math.max(img.width, img.height));
+      // Normalize the working size to ~2000px — UPscaling matters as much as
+      // downscaling: tube-label lettering in a phone-sized photo is often
+      // under 25px, below what the OCR engine reads reliably.
+      const scale = Math.min(2.5, 2000 / Math.max(img.width, img.height));
       const base = document.createElement('canvas');
       base.width = Math.max(1, Math.round(img.width * scale));
       base.height = Math.max(1, Math.round(img.height * scale));
-      base.getContext('2d').drawImage(img, 0, 0, base.width, base.height);
+      const bctx = base.getContext('2d');
+      bctx.imageSmoothingEnabled = true;
+      bctx.imageSmoothingQuality = 'high';
+      bctx.drawImage(img, 0, 0, base.width, base.height);
+      this.enhanceForOcr(base);
       // Tubes lie at arbitrary angles and OCR only reads roughly horizontal
       // text, so scan the photo at several rotations and pool everything read.
       // 15° steps keep every label within ~8° of one pass, inside the OCR
@@ -522,7 +528,7 @@ class ColourMixer extends React.Component {
         this.setState({ tubesPass: [i + 1, angles.length], tubesProgress: 0 });
         const { data } = await worker.recognize(this.rotatedCanvas(base, angles[i]));
         const words = (data.words || [])
-          .filter(w => (w.confidence || 0) >= 50)
+          .filter(w => (w.confidence || 0) >= 40)
           .map(w => w.text).join(' ');
         pooled += '\n' + (words || data.text || '');
       }
@@ -535,6 +541,33 @@ class ColourMixer extends React.Component {
     } catch (err) {
       this.setState({ tubesStatus: 'error' });
     }
+  }
+
+  // Grayscale + contrast stretch (2nd–98th percentile): lifts faint lettering
+  // on glossy, unevenly lit tubes without the risks of hard binarization.
+  enhanceForOcr(canvas) {
+    try {
+      const ctx = canvas.getContext('2d');
+      const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = id.data;
+      const hist = new Array(256).fill(0);
+      for (let i = 0; i < d.length; i += 4) {
+        hist[(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0]++;
+      }
+      const total = d.length / 4;
+      let acc = 0, lo = 0, hi = 255;
+      for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * 0.02) { lo = v; break; } }
+      acc = 0;
+      for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * 0.02) { hi = v; break; } }
+      if (hi - lo < 30) return; // nearly flat image; leave it alone
+      const span = hi - lo;
+      for (let i = 0; i < d.length; i += 4) {
+        const y = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+        const v = Math.max(0, Math.min(255, Math.round((y - lo) * 255 / span)));
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      ctx.putImageData(id, 0, 0);
+    } catch (e) {}
   }
 
   rotatedCanvas(base, deg) {
