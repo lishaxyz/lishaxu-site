@@ -69,6 +69,19 @@ Each page's `<head>` carries the account snippet for the plausible.io site
   conversion rates; add the custom property `piece` for per-artwork breakdowns.
 - Outbound link clicks (e.g. Etsy Buy links inside the planner) — enable
   "Outbound links" in the site's Plausible installation settings.
+- **Colour Mixer events** (fired from `colourmix/colourmix.js` via the
+  `track()` helper; also tagged: the tools page's `Open Colour Mixer`
+  button). Add each as a custom-event goal in the dashboard to see it:
+  - `Mixer Colour Picked` — props `source` (photo/dab/wheel/hex), `medium`;
+    drags are debounced so one gesture = one event
+  - `Mixer Photo Uploaded` — props `medium`
+  - `Mixer Medium Switched` — props `medium`
+  - `Mixer Paints Added` — props `method` (photograph/list/custom),
+    `pigment` (list adds), `tubes` (photograph batch size), `medium`
+  - `Mixer OCR Scan` — props `outcome` (found/nothing/error), `tubes`, `medium`
+  - `Mixer Shopping List Add` / `Mixer Tube Got It` — props `pigment`,
+    `brand`, `medium` (what people want to buy vs. actually got)
+  - `Mixer Shelf Cleared` — props `tubes`, `medium`
 
 ## Affiliate links / shop catalog
 

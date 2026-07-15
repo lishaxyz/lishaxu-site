@@ -25,6 +25,12 @@ const TESSERACT_PATHS = {
   langPath: new URL('../vendor/tesseract/lang', location.href).href
 };
 
+// Plausible custom events (the page-view snippet lives in index.html).
+// No-ops if the analytics script is blocked or absent.
+function track(name, props) {
+  try { if (window.plausible) window.plausible(name, props ? { props } : undefined); } catch (e) {}
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
@@ -150,6 +156,7 @@ class ColourMixer extends React.Component {
     clearTimeout(this._sessTimer);
     clearTimeout(this._toastTimer);
     clearTimeout(this._clearTimer);
+    clearTimeout(this._trackPickTimer);
     if (this._ocrWorkerPromise) this._ocrWorkerPromise.then(w => w.terminate()).catch(() => {});
   }
 
@@ -191,6 +198,14 @@ class ColourMixer extends React.Component {
     if (this._toastTimer) clearTimeout(this._toastTimer);
     this.setState({ toast: text });
     this._toastTimer = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+
+  // One event per picking gesture: drags on the photo or wheel sample
+  // continuously, so report the pick only once things settle.
+  trackPickDebounced(source) {
+    clearTimeout(this._trackPickTimer);
+    this._trackPickTimer = setTimeout(
+      () => track('Mixer Colour Picked', { source, medium: this.state.medium }), 1200);
   }
 
   // ---------- image sampling ----------
@@ -289,6 +304,7 @@ class ColourMixer extends React.Component {
       hasPick: true,
       pickPct: { x: (x / Wd) * 100, y: (y / Hd) * 100 }
     });
+    this.trackPickDebounced('photo');
   }
 
   handlePhotoPointerDown = e => {
@@ -304,6 +320,7 @@ class ColourMixer extends React.Component {
 
   selectDab = hex => {
     this.setState({ targetHex: hex, hasPick: false });
+    track('Mixer Colour Picked', { source: 'dab', medium: this.state.medium });
   };
 
   // ---------- change photo sheet ----------
@@ -337,6 +354,7 @@ class ColourMixer extends React.Component {
         this.sampleCanvas = null;
         this._restoredTarget = false;
         this.setState({ photoSrc: src, recentPhotos: recent, source: 'photo', showChangePhoto: false, hasPick: false });
+        track('Mixer Photo Uploaded', { medium: this.state.medium });
       };
       img.onerror = () => this.showToast('That file doesn’t look like an image');
       img.src = ev.target.result;
@@ -371,6 +389,7 @@ class ColourMixer extends React.Component {
     }
     const hex = v.startsWith('#') ? v : '#' + v;
     this.setState({ targetHex: hex, hasPick: false, showChangePhoto: false, pasteCodeValue: '' });
+    track('Mixer Colour Picked', { source: 'hex', medium: this.state.medium });
   };
 
   openWheelFromSheet = () => {
@@ -393,6 +412,7 @@ class ColourMixer extends React.Component {
   recomputeTargetFromWheel(hue, sat, light) {
     const rgb = this.mix.hslToRgb({ h: hue, s: sat, l: light });
     this.setState({ targetHex: this.mix.rgbToHex(rgb), hasPick: false });
+    this.trackPickDebounced('wheel');
   }
 
   handleWheelPointerDown = e => {
@@ -418,7 +438,10 @@ class ColourMixer extends React.Component {
   };
 
   // ---------- medium ----------
-  setMedium = m => this.setState({ medium: m });
+  setMedium = m => {
+    if (m !== this.state.medium) track('Mixer Medium Switched', { medium: m });
+    this.setState({ medium: m });
+  };
 
   // ---------- pigments / inventory ----------
   getPigments(medium) {
@@ -439,6 +462,10 @@ class ColourMixer extends React.Component {
     const newList = has ? list.filter(x => x !== id) : [...list, id];
     const inventory = { ...this.state.inventory, [medium]: newList };
     this.setState({ inventory }, () => this.persist());
+    if (!has && this.state.paintsTab === 'list') {
+      const p = this.getPigments(medium).find(pp => pp.id === id);
+      track('Mixer Paints Added', { method: 'list', pigment: p ? p.name : id, medium });
+    }
   };
 
   openMyPaints = () => this.setState({ showMyPaints: true });
@@ -460,6 +487,7 @@ class ColourMixer extends React.Component {
     const inventory = { ...this.state.inventory, [medium]: [...(this.state.inventory[medium] || []), id] };
     this.setState({ customPigments, inventory, addNameValue: '', addHexValue: '#8a6d3b', paintsTab: null }, () => this.persist());
     this.showToast(name + ' added to your shelf');
+    track('Mixer Paints Added', { method: 'custom', medium });
   };
 
   // ---------- photograph tubes (OCR) ----------
@@ -535,11 +563,13 @@ class ColourMixer extends React.Component {
       window.__pmLastOcrText = pooled; // debugging aid: raw text of the last scan
       const results = this.matchTubesInText(pooled);
       this.setState({ tubesStatus: 'done', tubesResults: results });
+      track('Mixer OCR Scan', { outcome: results.length ? 'found' : 'nothing', tubes: results.length, medium: this.state.medium });
       if (!results.length) return;
       const fresh = results.filter(r => !r.owned).length;
       this.showToast(fresh ? ('Found ' + results.length + ' paint name' + (results.length > 1 ? 's' : '') + ' — confirm below') : 'Found ' + results.length + ' — all already on your shelf');
     } catch (err) {
       this.setState({ tubesStatus: 'error' });
+      track('Mixer OCR Scan', { outcome: 'error', medium: this.state.medium });
     }
   }
 
@@ -686,6 +716,7 @@ class ColourMixer extends React.Component {
     const tubesResults = this.state.tubesResults.map(r => toAdd.includes(r.id) ? { ...r, owned: true, checked: false } : r);
     this.setState({ inventory, tubesResults }, () => this.persist());
     this.showToast(toAdd.length + ' tube' + (toAdd.length > 1 ? 's' : '') + ' added to your shelf');
+    track('Mixer Paints Added', { method: 'photograph', tubes: toAdd.length, medium });
   };
 
   // Two-tap confirm (in the page's own style, no browser dialog): first tap
@@ -705,6 +736,7 @@ class ColourMixer extends React.Component {
     const inventory = { ...this.state.inventory, [medium]: [] };
     this.setState({ inventory, confirmClear: false }, () => this.persist());
     this.showToast('Shelf cleared — recipes now draw on the full ' + label + ' range');
+    track('Mixer Shelf Cleared', { tubes: count, medium });
   };
 
   // ---------- shopping list ----------
@@ -717,6 +749,7 @@ class ColourMixer extends React.Component {
     const shoppingList = [...this.state.shoppingList, item];
     this.setState({ shoppingList }, () => this.persist());
     this.showToast(pigment.name + ' added to your shopping list');
+    track('Mixer Shopping List Add', { pigment: pigment.name, brand: pigment.brand, medium: this.state.medium });
   };
 
   buyShoppingItem = item => {
@@ -725,6 +758,8 @@ class ColourMixer extends React.Component {
     const shoppingList = this.state.shoppingList.filter(s => s !== item);
     this.setState({ inventory, shoppingList }, () => this.persist());
     this.showToast('Added to My Paints');
+    const p = this.getPigments(medium).find(pp => pp.id === item.pigmentId);
+    track('Mixer Tube Got It', { pigment: p ? p.name : item.pigmentId, brand: p ? p.brand : '', medium });
   };
 
   // ---------- recipe (memoized) ----------
