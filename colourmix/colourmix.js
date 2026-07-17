@@ -25,10 +25,10 @@ const TESSERACT_PATHS = {
   langPath: new URL('../vendor/tesseract/lang', location.href).href
 };
 
-// Plausible custom events (the page-view snippet lives in index.html).
+// Umami custom events (the page-view snippet lives in index.html).
 // No-ops if the analytics script is blocked or absent.
 function track(name, props) {
-  try { if (window.plausible) window.plausible(name, props ? { props } : undefined); } catch (e) {}
+  try { if (window.umami && window.umami.track) window.umami.track(name, props || undefined); } catch (e) {}
 }
 
 function loadScript(src) {

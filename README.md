@@ -56,32 +56,34 @@ for the planner.)
 Netlify/Vercel also work: point them at this folder, no build command,
 publish directory = this folder, then attach the domain.
 
-## Analytics (Plausible) — live
+## Analytics (Umami Cloud) — live
 
-Each page's `<head>` carries the account snippet for the plausible.io site
-`lishaxu.com` (the `pa-….js` script). It provides:
+Each page's `<head>` carries the Umami Cloud snippet (website id
+`c67a9788-…`, `data-domains="lishaxu.com"` so localhost/preview visits are
+never recorded). Cookieless — no consent banner needed. Events appear in the
+Umami dashboard automatically (no goal setup required, unlike Plausible):
 
 - Page views per page (traffic).
-- **CTR on buttons**: every Purchase / Inquire / Open-the-Planner button is
-  tagged with `plausible-event-name=...` classes (with a
-  `plausible-event-piece` property naming the artwork). Add goals named
-  `Purchase`, `Inquire`, and `Open Planner` in the Plausible dashboard to see
-  conversion rates; add the custom property `piece` for per-artwork breakdowns.
-- Outbound link clicks (e.g. Etsy Buy links inside the planner) — enable
-  "Outbound links" in the site's Plausible installation settings.
+- **CTR on buttons**: every Purchase / Inquire / Open-Planner /
+  Open-Colour-Mixer button is tagged with `data-umami-event` (plus a
+  `data-umami-event-piece` property naming the artwork).
+- **Planner Buy Click**: the planner's Etsy Buy links (tagged in
+  `planner/planner.js`) with the piece title as a property.
 - **Colour Mixer events** (fired from `colourmix/colourmix.js` via the
-  `track()` helper; also tagged: the tools page's `Open Colour Mixer`
-  button). Add each as a custom-event goal in the dashboard to see it:
-  - `Mixer Colour Picked` — props `source` (photo/dab/wheel/hex), `medium`;
-    drags are debounced so one gesture = one event
-  - `Mixer Photo Uploaded` — props `medium`
-  - `Mixer Medium Switched` — props `medium`
-  - `Mixer Paints Added` — props `method` (photograph/list/custom),
-    `pigment` (list adds), `tubes` (photograph batch size), `medium`
-  - `Mixer OCR Scan` — props `outcome` (found/nothing/error), `tubes`, `medium`
-  - `Mixer Shopping List Add` / `Mixer Tube Got It` — props `pigment`,
-    `brand`, `medium` (what people want to buy vs. actually got)
-  - `Mixer Shelf Cleared` — props `tubes`, `medium`
+  `track()` helper; all carry a `medium` property):
+  - `Mixer Colour Picked` — `source` (photo/dab/wheel/hex); drags are
+    debounced so one gesture = one event
+  - `Mixer Photo Uploaded`
+  - `Mixer Medium Switched`
+  - `Mixer Paints Added` — `method` (photograph/list/custom), `pigment`
+    (list adds), `tubes` (photograph batch size)
+  - `Mixer OCR Scan` — `outcome` (found/nothing/error), `tubes`
+  - `Mixer Shopping List Add` / `Mixer Tube Got It` — `pigment`, `brand`
+    (what people want to buy vs. actually got)
+  - `Mixer Shelf Cleared` — `tubes`
+
+(The site used Plausible until 2026-07 — historical data lives in a CSV
+export, not in Umami.)
 
 ## Affiliate links / shop catalog
 

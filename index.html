@@ -40,13 +40,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/site.css">
-<!-- Privacy-friendly analytics by Plausible. The Purchase / Inquire / Open-Planner
-     buttons are tagged via plausible-event-name classes. -->
-<script async src="https://plausible.io/js/pa-HvV7BJ1SXZPFdB6k0vsl2.js"></script>
-<script>
-  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-  plausible.init()
-</script>
+<!-- Privacy-friendly analytics by Umami (cookieless — no consent banner needed).
+     CTA buttons are tagged via data-umami-event attributes. -->
+<script defer src="https://cloud.umami.is/script.js" data-website-id="c67a9788-1762-4bfe-b14a-41bd56067300" data-domains="lishaxu.com"></script>
 </head>
 <body class="home">
 
@@ -79,25 +75,25 @@
           <div class="card-well"><img src="prints/allen-gardens.webp" alt="Allen Gardens — Toronto art print" width="864" height="1100" loading="lazy" decoding="async"></div>
           <div class="card-title">Allen Gardens</div>
           <div class="card-detail">Digital print &middot; 11 &times; 14 in &middot; 2021</div>
-          <div class="card-cta"><a class="btn btn-purchase plausible-event-name=Purchase plausible-event-piece=Allen+Gardens" href="https://www.etsy.com/ca/listing/964310159/allan-gardens-toronto-art-print" target="_blank" rel="noopener">Purchase</a></div>
+          <div class="card-cta"><a class="btn btn-purchase" data-umami-event="Purchase" data-umami-event-piece="Allen Gardens" href="https://www.etsy.com/ca/listing/964310159/allan-gardens-toronto-art-print" target="_blank" rel="noopener">Purchase</a></div>
         </div>
         <div class="card">
           <div class="card-well"><img src="site-assets/saguaro.webp" alt="Saguaro — oil painting of a desert sunset with saguaro cactus and prickly pear" width="1400" height="1400" loading="lazy" decoding="async"></div>
           <div class="card-title">Saguaro <span class="attribution">(based on Jim Musil)</span></div>
           <div class="card-detail">Oil on paper &middot; 10 &times; 10 in &middot; 2024</div>
-          <div class="card-cta"><a class="btn btn-inquire plausible-event-name=Inquire plausible-event-piece=Saguaro" href="mailto:hello@lishaxu.com">Inquire</a></div>
+          <div class="card-cta"><a class="btn btn-inquire" data-umami-event="Inquire" data-umami-event-piece="Saguaro" href="mailto:hello@lishaxu.com">Inquire</a></div>
         </div>
         <div class="card">
           <div class="card-well"><img src="site-assets/bluebonnets.webp" alt="Bluebonnets — oil painting on paper" width="1394" height="1400" loading="lazy" decoding="async"></div>
           <div class="card-title">Bluebonnets <span class="attribution">(based on Jim Musil)</span></div>
           <div class="card-detail">Oil on paper &middot; 10 &times; 10 in &middot; 2025</div>
-          <div class="card-cta"><a class="btn btn-inquire plausible-event-name=Inquire plausible-event-piece=Bluebonnets" href="mailto:hello@lishaxu.com">Inquire</a></div>
+          <div class="card-cta"><a class="btn btn-inquire" data-umami-event="Inquire" data-umami-event-piece="Bluebonnets" href="mailto:hello@lishaxu.com">Inquire</a></div>
         </div>
         <div class="card">
           <div class="card-well"><img src="prints/tiny-rom.webp" alt="Tiny ROM — Royal Ontario Museum Toronto art print" width="1200" height="927" loading="lazy" decoding="async"></div>
           <div class="card-title">Tiny ROM</div>
           <div class="card-detail">Digital print &middot; 11 &times; 14 in &middot; 2021</div>
-          <div class="card-cta"><a class="btn btn-purchase plausible-event-name=Purchase plausible-event-piece=Tiny+ROM" href="https://www.etsy.com/ca/listing/962450581/tiny-rom-toronto-art-print" target="_blank" rel="noopener">Purchase</a></div>
+          <div class="card-cta"><a class="btn btn-purchase" data-umami-event="Purchase" data-umami-event-piece="Tiny ROM" href="https://www.etsy.com/ca/listing/962450581/tiny-rom-toronto-art-print" target="_blank" rel="noopener">Purchase</a></div>
         </div>
       </div>
     </section>
@@ -108,7 +104,7 @@
         <div class="planner-callout-heading">See it on your wall before you buy.</div>
         <div class="planner-callout-body">Upload a photo of your wall and arrange artwork to scale with the Gallery Wall Planner.</div>
       </div>
-      <a class="btn-planner plausible-event-name=Open+Planner" href="planner/">Open the Planner</a>
+      <a class="btn-planner" data-umami-event="Open Planner" href="planner/">Open the Planner</a>
     </section>
   </main>
 

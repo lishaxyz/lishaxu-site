@@ -890,7 +890,7 @@
                 </div>
                 <div style="display:flex;gap:7px;margin-top:10px">
                   <button onClick=${a.add} style="flex:1;font-size:12px;font-weight:600;padding:8px 0;border-radius:8px;border:1px solid transparent;background:var(--accent);color:var(--accentText);cursor:pointer;touch-action:manipulation">Add</button>
-                  <a href=${a.buyUrl} target="_blank" rel="noopener noreferrer" style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;padding:8px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;text-decoration:none">Buy ↗</a>
+                  <a href=${a.buyUrl} target="_blank" rel="noopener noreferrer" data-umami-event="Planner Buy Click" data-umami-event-piece=${a.title} style="flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;padding:8px 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;text-decoration:none">Buy ↗</a>
                 </div>
               </div>
             </div>
@@ -959,7 +959,7 @@
               <div style="font-family:Lora,Georgia,serif;font-size:13.5px;font-weight:500;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${v.spShopTitle}</div>
               <div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${v.spShopMeta}</div>
             </div>
-            <a href=${v.spBuyUrl} target="_blank" rel="noopener noreferrer" style="flex:0 0 auto;font-size:12px;font-weight:600;padding:8px 12px;border-radius:9px;border:1px solid transparent;background:var(--accent);color:var(--accentText);cursor:pointer;text-decoration:none;white-space:nowrap">Buy ↗</a>
+            <a href=${v.spBuyUrl} target="_blank" rel="noopener noreferrer" data-umami-event="Planner Buy Click" data-umami-event-piece=${v.spShopTitle} style="flex:0 0 auto;font-size:12px;font-weight:600;padding:8px 12px;border-radius:9px;border:1px solid transparent;background:var(--accent);color:var(--accentText);cursor:pointer;text-decoration:none;white-space:nowrap">Buy ↗</a>
           </div>
         `}
 
